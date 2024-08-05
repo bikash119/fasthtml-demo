@@ -72,12 +72,44 @@ rt = app.route
 @rt("/login")
 def get():
     frm = Form(
-         Input(id='name',placeholder='Name')
-        ,Input(id='password',type='password',placeholder='Password')
+         Input(id='username',placeholder='Name')
+        ,Input(id='email',placeholder='email@domain.com')
+        ,Input(id='passwd',type='password',placeholder='Password')
         ,Button('login')
         ,action='/login',method='post'
     )
     return Titled('Login',frm) # We are returning a HTML form titled Login
+
+# The Login dataclass is auto instantiated for us. The attributes of the dataclass are populated from the values in the Form.
+# The id of html tag is matched to attribute of dataclass
+@dataclass
+class Login: username: str; passwd: str; email: str
+
+# This handler is invoked when POST request is made to the `/login` path
+# The `login` argument is an instance of the `Login` class, which has been auto-instantiated from the form data.
+
+@rt("/login")
+def post(login:Login,sess):
+    # if the login object doesn't have the name or password set, the user is redirected to login page.
+    if not login.username or not login.passwd or not login.email: return login_redir
+    try: 
+        # Query the users table to find user by username
+        u = users[login.username]
+    except NotFoundError: 
+        # if not found, create a user. 
+        # TODO : invoke signup screen flow here.
+        u = users.insert(login)
+    # Compare the passwords using a constant time string comparision
+    if not compare_digest(u.pwd.encode('utf-8'),login.passwd.encode('utf-8')): return login_redir
+    sess['auth'] = u.username
+    return RedirectResponse('/',status_code=303)
+
+# Instead or using the app.route, we can use app.<http_verb>. This will allow us to name our route handling functions
+# different from http verb method.
+@app.get("/logout")
+def logout(sess):
+    del sess['auth']
+    return login_redir
 
 serve()
 
