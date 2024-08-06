@@ -48,10 +48,11 @@ bware = Beforeware(before,skip=[r'/favicon\.ico',r'/static/.*',r'.*\.css','/logi
 def _not_found(req,exc): return Titled('oh ho!',Div('We could not find that page :('))
 
 markdown_js = """
-import { marked } from "https://cdn.jsdelivr.net/npm/marked/lib/marked.em.js"
-import { proc_htmx } from "https://cds.jselivr.net/gh/answerdotai/fasthtml-js/fasthtml.js;
+import { marked } from "https://cdn.jsdelivr.net/npm/marked/lib/marked.esm.js";
+import { proc_htmx } from "https://cdn.jsdelivr.net/gh/answerdotai/fasthtml-js/fasthtml.js";
 proc_htmx('.markdown',e=> e.innerHTML = marked.parse(e.textContent));
 """
+
 # Now we create our app
 # To create the app , we instantiate FastHTML by passing in 
 # 1. the interceptor
@@ -59,7 +60,10 @@ proc_htmx('.markdown',e=> e.innerHTML = marked.parse(e.textContent));
 # 3. 
 app = FastHTML(before=bware # request interceptor
                ,exception_handlers={404:_not_found} # exception handler
-               ,hdrs=(picolink) # picocss as stylesheet for our app
+               ,hdrs=(picolink # picocss as stylesheet for our app
+                      ,SortableJS('.sortable')
+                      ,Script(markdown_js,type='module')
+                      )
                )
 
 # rt is shortcut for `app.route`, we will use to decorate our route handlers
@@ -120,7 +124,7 @@ def logout(sess):
 @patch
 def __ft__(self:Todo):
     show = AX(self.title,f'/todos/{self.id}','current-todo')
-    edit = AX('edit',    f'/todos/{self.id}','current-todo')
+    edit = AX('edit',    f'/edit/{self.id}','current-todo')
     dt = '✅ ' if self.done else ''
     cts = (dt, show, ' | ',edit,Hidden(id="id",value=self.id),Hidden(id="priority",value="0"))
     return Li(*cts,id=f'todo-{self.id}')
@@ -167,4 +171,40 @@ async def post(todo:Todo):
     # Since the id of this element is same as the input element we created in the get of `/`, the input element is updated.
     new_inp = Input(id="new-title",name="title",placeholder="New Todo",hx_swap_oob='true')
     return todos.insert(todo),new_inp
+
+@rt("/reorder")
+def post(id:list[int]):
+    for i,id_ in enumerate(id): todos.update({'priority':i},id_)
+    return tuple(todos(order_by='priority'))
+
+@rt("/todos/{id}")
+async def get(id:int):
+    todo = todos[id]
+    btn = Button('delete',hx_delete=f'/todos/{todo.id}',
+                 target_id=f'todo-{todo.id}',hx_swap='outerHTML')
+    return Div(H2(todo.title),Div(todo.details,cls='markdown'),btn)
+
+def clr_details(): return Div(hx_swap_oob='innerHTML',id='current-todo')
+
+@rt("/todos/{id}")
+async def delete(id:int):
+    todos.delete(id)
+    return clr_details()
+
+@rt("/edit/{id}")
+async def get(id:int):
+    # target_id specifies which element will get updated in the DOM with the server's response
+    res = Form(
+         Group(Input(id="title"),Button("save"))
+        ,Hidden(id="id")
+        ,Checkbox(id="done",label="Done")
+        ,Textarea(id="details",name="details",rows=10)
+        ,hx_put="/",target_id=f'todo-{id}',id="edit")
+    # fill_form populate the form with existing todo data and returns the result.
+    return fill_form(res,todos[id])
+
+@rt("/")
+async def put(todo: Todo):
+    return todos.upsert(todo), clr_details()
+
 serve()
