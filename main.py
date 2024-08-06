@@ -11,7 +11,7 @@ if users not in db.t:
     users.create(dict(id=int,username=str,email=str,pwd=str),pk='id')
 if todos not in db.t:
     # here we are defining the columns of our todos table using kwargs
-    todos.create(id=int,title=str,name=str,details=str,priority=int,pk='id')
+    todos.create(id=int,title=str,done=bool,name=str,details=str,priority=int,pk='id')
 # `dataclass` corresponding to our database tables are created here.
 # Python Dataclass is similar to Java7 POJO with less boiler plate code
 Todo,User = todos.dataclass(),users.dataclass()
@@ -111,11 +111,60 @@ def logout(sess):
     del sess['auth']
     return login_redir
 
+
+# @patch decorator adds a method to an existing class.
+# __ft__ is a special method that FastHTML uses to convert the object any object into `FT` object
+# so that it can be converted (composed) into a FT tree and later rendered into HTML
+
+# Here we are adding __ft__ method to Todo class which FastHTML will use and create FT tree of the Todo class
+@patch
+def __ft__(self:Todo):
+    show = AX(self.title,f'/todos/{self.id}','current-todo')
+    edit = AX('edit',    f'/todos/{self.id}','current-todo')
+    dt = '✅ ' if self.done else ''
+    cts = (dt, show, ' | ',edit,Hidden(id="id",value=self.id),Hidden(id="priority",value="0"))
+    return Li(*cts,id=f'todo-{self.id}')
+
 @rt("/")
-def get(sess):
-    username = sess['auth']
-    if not username: login_redir
-    return Title("Welcome"),Div(P(f'Welcome {username}'),A('logout',href="/logout"),style='text-align: right')
+def get(sess,auth):
+    print(sess)
+    title = f"{auth}'s Todo List"
+    top = Grid(H1(title),Div(A('logout',href="/logout"),style='text-align: right'))
+    # We do not want the user to land in a different page of adding or editing todos. So we will use hx_post to add
+    # a new todo. The new todo is always added at the top of the list which we achieve by use `afterbegin`
+    new_inp = Input(id="new-title",name="title", placeholder="New Todo") # A new input element is created here
+    # Here we create a new form consisting of the input element new_inp and Button grouped together using Group FT
+    add = Form(
+            Group(new_inp,Button("Add"))
+            ,hx_post="/", target_id="todo-list",hx_swap="afterbegin"
+            )
+    # Here we are rendering the list of Todos. 
+    # 1. Since, as we have defined a interceptor to filter out Todos of the current user, so we need not add
+    # any further filtering here.
+    # 2. As we have patched our Todo class with __ft__ method, FastHTML will give us a FT tree for todos which will be 
+    # rendered as HTML
+    # 3. We are putting the Todos inside a Form so that we can use sortable in order to reorder/sort the Todos based
+    # on user preference
+    frm = Form(*todos(order_by='priority'),
+               id='todo-list',cls='sortable',hx_post='/reorder',hx_trigger="end"
+               )
+    card = Card(Ul(frm),header=add,footer=Div(id='current-todo'))
 
+    # What we are doing above is
+    # 1. Creating a form to add the todos
+    # 2. Creating a form to list down the todos
+    # 3. Creating a Card which is capsule consisting of list of todos and add
+    # 4. Finally creating container which is another capsule consisting of top grid and card
+    return Title(title),Container(top,card)
+
+
+@rt("/")
+async def post(todo:Todo):
+    # `hx_swap_oob= 'true'` tells htmx to perform an out-of-band swap, 
+    #  What is out-of-band swap? : If the server responds a html element , then all the elements with the id same
+    # as responded by server gets updated.
+    # So , here we are explicitly returning the input element.
+    # Since the id of this element is same as the input element we created in the get of `/`, the input element is updated.
+    new_inp = Input(id="new-title",name="title",placeholder="New Todo",hx_swap_oob='true')
+    return todos.insert(todo),new_inp
 serve()
-
