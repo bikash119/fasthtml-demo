@@ -8,7 +8,7 @@ db = database('data/todos_app.db')
 todos,users = db.t.todos,db.t.users
 if users not in db.t:
     # here we are defining the columns of our users table using dictionary
-    users.create(dict(id=int,name=str,pwd=str),pk='id')
+    users.create(dict(id=int,username=str,email=str,pwd=str),pk='id')
 if todos not in db.t:
     # here we are defining the columns of our todos table using kwargs
     todos.create(id=int,title=str,name=str,details=str,priority=int,pk='id')
@@ -98,7 +98,7 @@ def post(login:Login,sess):
     except NotFoundError: 
         # if not found, create a user. 
         # TODO : invoke signup screen flow here.
-        u = users.insert(login)
+        u = users.insert({'username':login.username,'email':login.email,'pwd':login.passwd})
     # Compare the passwords using a constant time string comparision
     if not compare_digest(u.pwd.encode('utf-8'),login.passwd.encode('utf-8')): return login_redir
     sess['auth'] = u.username
@@ -110,6 +110,12 @@ def post(login:Login,sess):
 def logout(sess):
     del sess['auth']
     return login_redir
+
+@rt("/")
+def get(sess):
+    username = sess['auth']
+    if not username: login_redir
+    return Title("Welcome"),Div(P(f'Welcome {username}'),A('logout',href="/logout"),style='text-align: right')
 
 serve()
 
